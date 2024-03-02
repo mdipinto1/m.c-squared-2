@@ -1,0 +1,196 @@
+# %%
+import warnings
+warnings.filterwarnings('ignore')
+
+# Import Neccessary libraries
+import numpy as np 
+import pandas as pd 
+
+# Import Visualization libraries
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Set the decimal format
+pd.options.display.float_format = "{:.2f}".format
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt 
+import plotly.express as px
+import seaborn as sns
+
+# %% [markdown]
+# ### <b><span style='color:#16C2D5'>|</span> Input the data</b> 
+
+# %%
+df = pd.read_csv("Data/CUSTOM__BINARY_diabetes_012_health_indicators_BRFSS2015.csv")
+
+df_multiclass = pd.read_csv("Data/CUSTOM_diabetes_012_health_indicators_BRFSS2015.csv")
+
+
+# %%
+df.head()
+
+# %%
+df.columns
+
+# %%
+#Get Dummy for all the data make sure they are numeric
+pd.get_dummies(df)
+
+# %%
+print(df.dtypes)
+
+# %%
+
+#Data Cleaning and convert the value to float
+df['Smoker'] = pd.to_numeric(df['Smoker'], errors='coerce')
+print(df['Smoker'].dtypes)
+
+
+# %%
+corr = df.drop(columns=[column for column in df.columns if column.startswith('Race')]).corr()
+mini_corr = corr['Diabetes_012'].sort_values(ascending=False)
+
+# %%
+from sklearn.model_selection import train_test_split
+from imblearn.under_sampling import RandomUnderSampler
+from imblearn.over_sampling import RandomOverSampler
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score
+
+# %%
+#Use R Squre to find the Best Model combination
+results_list = []  # List to store results for each model
+best_r_squared = float('-inf')
+best_columns = []
+
+for x in range(1, len(mini_corr) + 1):
+    selected_columns = mini_corr.iloc[:x].index.tolist() + ['Diabetes_012']
+    
+    if not set(selected_columns).issubset(df.columns):
+        continue
+    
+    diabetes_df = df[selected_columns].dropna()
+    
+    if diabetes_df.empty:
+        continue
+
+    X = diabetes_df.drop('Diabetes_012', axis=1)
+    y = diabetes_df['Diabetes_012']
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=0)
+    
+    if X_train.empty or X_test.empty or y_train.empty or y_test.empty:
+        continue
+
+    model = LinearRegression()
+    model.fit(X_train, y_train)
+    r_squared = model.score(X_test, y_test)
+
+    results_list.append({'Number of Features': x, 'R-squared': r_squared})
+    
+    if r_squared > best_r_squared:
+        best_r_squared = r_squared
+        best_columns = selected_columns
+
+# Convert results list to DataFrame
+results_df = pd.DataFrame(results_list)
+
+# Display the results DataFrame
+print(results_df)
+
+# Display the best R-squared score and corresponding columns
+if best_columns:
+    print(f'Best R-squared: {best_r_squared}')
+    print(f'Best model columns: {best_columns}')
+    print(f'Number of columns in the best model: {len(best_columns)-1}')  # Exclude target variable
+else:
+    print("No valid model configuration was found.")
+
+# %%
+#Trainning Data after find the Best Model 
+bestModel_columns = mini_corr.head(26).index
+bestModel_diabetes_df=df[bestModel_columns]
+X = bestModel_diabetes_df.drop('Diabetes_012', axis=1)
+y = bestModel_diabetes_df['Diabetes_012']
+X_train_multiclass, X_test_multiclass, y_train_multiclass, y_test_multiclass = train_test_split(X, y, test_size=0.2, random_state=0)
+
+#oversample the minority class
+ros_multiclass = RandomOverSampler(random_state=0)
+X_oversampled_multiclass, y_oversampled_multiclass = ros_multiclass.fit_resample(X_train_multiclass, y_train_multiclass)
+
+
+# %%
+#undersample the majority class
+rus_multiclass = RandomUnderSampler(random_state=0)
+X_undersampled_multiclass, y_undersampled_multiclass = rus_multiclass.fit_resample(X_train_multiclass, y_train_multiclass)
+
+# %%
+y_oversampled_multiclass.count()
+
+# %%
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.decomposition import PCA  
+
+# %%
+#use StandardScaler to scale the data
+scaler_multiclass = StandardScaler().fit(X_oversampled_multiclass)
+X_oversampled_multiclass_scaled = scaler_multiclass.transform(X_oversampled_multiclass)
+X_undersampled_multiclass_scaled = scaler_multiclass.transform(X_undersampled_multiclass)
+X_test_multiclass_scaled = scaler_multiclass.transform(X_test_multiclass)
+
+# %%
+#reduce dimensionality of the scaled data with pca
+pca = PCA(n_components=0.90, random_state=0)
+X_pca_oversampled_multiclass_scaled = pca.fit_transform(X_oversampled_multiclass_scaled)
+X_pca_undersampled_multiclass_scaled = pca.transform(X_undersampled_multiclass_scaled)
+X_pca_test_multiclass_scaled = pca.transform(X_test_multiclass)
+
+# %%
+pca.explained_variance_ratio_
+
+# %%
+components = pca.components_
+
+feature_names = list(X_train_multiclass.columns)
+components_df = pd.DataFrame(components, columns=feature_names, index=[f'PC{i+1}' for i in range(components.shape[0])])
+
+components_df
+
+# %%
+#Import unsupervised models
+from sklearn.cluster import KMeans
+from sklearn.mixture import GaussianMixture
+from sklearn.cluster import AgglomerativeClustering
+from sklearn.neighbors import KNeighborsClassifier
+#Import supervised models
+from sklearn.linear_model import LogisticRegression, LinearRegression
+from sklearn.svm import SVC
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, mean_squared_error, r2_score
+
+# %%
+#logistic regression on oversampled and undersampled multiclass data
+lr_ros = LogisticRegression(max_iter=10000).fit(X_oversampled_multiclass, y_oversampled_multiclass)
+lr_rus = LogisticRegression(max_iter=10000).fit(X_undersampled_multiclass, y_undersampled_multiclass)
+
+# %%
+#multiclass train and test accuracy (oversampled)
+print("Random Oversampling logistic regression model produced the following:\n" + classification_report(y_oversampled_multiclass, lr_ros.predict(X_oversampled_multiclass)))
+print("Random Oversampling on the test data produced the following:\n" + classification_report(y_test_multiclass, lr_ros.predict(X_test_multiclass)))
+
+# %%
+#multiclass train and test accuracy (undersampled)
+print("Random Undersampling logistic regression model produced the following:\n" + classification_report(y_undersampled_multiclass, lr_rus.predict(X_undersampled_multiclass)))
+print("Random undersampling on the test data produced the following:\n" + classification_report(y_test_multiclass, lr_rus.predict(X_test_multiclass)))
+
+# %%
+merged_undersampled = pd.concat([X_test_multiclass,y_test_multiclass], axis=1)
+merged_undersampled = merged_undersampled.loc[merged_undersampled['Diabetes_012'] == 1]
+predicitions = lr_ros.predict(merged_undersampled.drop('Diabetes_012', axis=1))
+pd.Series(predicitions).value_counts()
+
+# %%
+
+
+
